@@ -2,14 +2,14 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>Mini GD</title>
+<title>Mini GD v2</title>
 <style>
 body{margin:0;background:#000;color:#fff;font-family:sans-serif;overflow:hidden}
 canvas{background:#111;display:block;margin:auto}
 .screen{
   position:absolute;top:0;left:0;width:100%;height:100%;
   display:flex;flex-direction:column;justify-content:center;align-items:center;
-  background:rgba(0,0,0,0.7);
+  background:rgba(0,0,0,0.8);
 }
 button{padding:12px 24px;margin:10px;font-size:18px;border:none;border-radius:8px}
 #gameUI{position:absolute;top:10px;left:10px}
@@ -18,54 +18,102 @@ button{padding:12px 24px;margin:10px;font-size:18px;border:none;border-radius:8p
 <body>
 
 <div id="startScreen" class="screen">
-  <h1>Mini GD</h1>
-  <button onclick="startGame()">START</button>
+  <h1>Mini GD v2</h1>
+  <button onclick="startLevel(0)">LEVEL 1</button>
+  <button onclick="startLevel(1)">LEVEL 2</button>
 </div>
 
 <div id="gameOverScreen" class="screen" style="display:none;">
-  <h1 id="finalScore"></h1>
+  <h1 id="finalText"></h1>
   <button onclick="retry()">RETRY</button>
+  <button onclick="backMenu()">MENU</button>
 </div>
 
-<div id="gameUI">Score: 0</div>
 <canvas id="c" width="900" height="300"></canvas>
+<div id="gameUI">Score: 0</div>
 
 <script>
-const c = document.getElementById("c");
-const ctx = c.getContext("2d");
+const c=document.getElementById("c");
+const ctx=c.getContext("2d");
 
-let state="start", score=0, camera=0;
+let state="menu";
+let score=0;
+let camera=0;
+let levelIndex=0;
+
 let p;
 
 function resetPlayer(){
   p={x:100,y:200,v:0,rot:0,mode:"cube",gravity:1};
 }
 
-function startGame(){
-  state="play"; score=0; camera=0;
+function levels=[
+  // LEVEL 1
+  [
+    {type:"spike",x:400},
+    {type:"spike",x:600},
+    {type:"pad",x:800},
+    {type:"portal",x:1000},
+  ],
+  // LEVEL 2
+  [
+    {type:"spike",x:300},
+    {type:"spike",x:500},
+    {type:"spike",x:700},
+    {type:"wavePortal",x:900},
+    {type:"spike",x:1100},
+  ]
+];
+
+let map=[];
+
+function startLevel(i){
+  levelIndex=i;
+  map=JSON.parse(JSON.stringify(levels[i])); // 복사
+  state="play";
+  score=0;
+  camera=0;
   resetPlayer();
   document.getElementById("startScreen").style.display="none";
+  document.getElementById("gameOverScreen").style.display="none";
 }
 
 function retry(){
-  state="play"; score=0; camera=0;
-  resetPlayer();
+  startLevel(levelIndex);
+}
+
+function backMenu(){
+  state="menu";
+  document.getElementById("startScreen").style.display="flex";
   document.getElementById("gameOverScreen").style.display="none";
 }
 
 function input(){
   if(state!=="play") return;
-  if(p.mode==="cube" && p.y>=200) p.v=-12*p.gravity;
+
+  if(p.mode==="cube" && p.y>=200){
+    p.v=-12*p.gravity;
+  }
+
+  if(p.mode==="wave"){
+    p.waveUp=!p.waveUp;
+  }
 }
+
 document.addEventListener("click",input);
 document.addEventListener("touchstart",input);
 
-let map=[
-  {type:"spike",x:400},
-  {type:"pad",x:600},
-  {type:"portal",x:800},
-  {type:"wavePortal",x:1000}
-];
+function gameOver(){
+  state="over";
+  document.getElementById("gameOverScreen").style.display="flex";
+  document.getElementById("finalText").innerText="Score: "+score;
+}
+
+function win(){
+  state="over";
+  document.getElementById("gameOverScreen").style.display="flex";
+  document.getElementById("finalText").innerText="LEVEL CLEAR!";
+}
 
 function loop(){
   ctx.clearRect(0,0,c.width,c.height);
@@ -74,17 +122,19 @@ function loop(){
     camera+=5;
     score++;
 
+    // player physics
     if(p.mode==="cube"){
       p.v+=0.8*p.gravity;
       p.y+=p.v;
       if(p.y>200){p.y=200;p.v=0;p.rot=0;}
-      else{p.rot+=10;}
+      else p.rot+=10;
     }
 
     if(p.mode==="wave"){
-      p.y += p.waveUp ? -5 : 5;
+      p.y += p.waveUp ? -6 : 6;
     }
 
+    // player draw
     ctx.save();
     ctx.translate(p.x,p.y);
 
@@ -102,6 +152,8 @@ function loop(){
     ctx.fillStyle="#333";
     ctx.fillRect(0,230,900,70);
 
+    let alive=true;
+
     for(let o of map){
       let x=o.x-camera;
 
@@ -113,8 +165,8 @@ function loop(){
         ctx.lineTo(x+10,200);
         ctx.fill();
 
-        if(p.x<x+20 && p.x+30>x && p.y>180){
-          gameOver();
+        if(p.x<x+20 && p.x+30>x && p.y>190){
+          alive=false;
         }
       }
 
@@ -130,7 +182,10 @@ function loop(){
         ctx.fillStyle="blue";
         ctx.fillRect(x,180,20,50);
         if(p.x<x+20 && p.x+30>x){
-          p.gravity*=-1;
+          if(!o.used){
+            p.gravity*=-1;
+            o.used=true;
+          }
         }
       }
 
@@ -139,20 +194,24 @@ function loop(){
         ctx.fillRect(x,180,20,50);
         if(p.x<x+20 && p.x+30>x){
           p.mode="wave";
+          p.waveUp=true;
+        }
+      }
+
+      // WIN CHECK
+      if(o.x-camera < -100){
+        if(o===map[map.length-1]){
+          win();
         }
       }
     }
+
+    if(!alive) gameOver();
 
     document.getElementById("gameUI").innerText="Score: "+score;
   }
 
   requestAnimationFrame(loop);
-}
-
-function gameOver(){
-  state="over";
-  document.getElementById("gameOverScreen").style.display="flex";
-  document.getElementById("finalScore").innerText="Score: "+score;
 }
 
 resetPlayer();
